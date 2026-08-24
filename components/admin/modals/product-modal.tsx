@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef } from 'react'
+import { useRef, useEffect } from 'react'
 import Image from 'next/image'
 import { X, Plus, Loader2 } from 'lucide-react'
 import { ProductItem, InventoryVariant } from '@/lib/types'
@@ -47,7 +47,30 @@ export function ProductModal({
 }: ProductModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Asegura que siempre exista una subcategoría seleccionada al abrir o cambiar la categoría
+  useEffect(() => {
+    if (isOpen && productForm.category) {
+      const availableSubs = SUBCATEGORIES[productForm.category] || []
+      if (availableSubs.length > 0 && !availableSubs.includes(productForm.subcategory)) {
+        setProductForm((prev: any) => ({
+          ...prev,
+          subcategory: availableSubs[0]
+        }))
+      }
+    }
+  }, [isOpen, productForm.category, productForm.subcategory, setProductForm])
+
   if (!isOpen) return null
+
+  const onCategorySelectChange = (newCategory: ProductItem['category']) => {
+    handleCategoryChange(newCategory)
+    const firstSub = SUBCATEGORIES[newCategory]?.[0] || ''
+    setProductForm((prev: any) => ({
+      ...prev,
+      category: newCategory,
+      subcategory: firstSub
+    }))
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-sm">
@@ -107,7 +130,7 @@ export function ProductModal({
                 </label>
                 <select
                   value={productForm.category}
-                  onChange={(e) => handleCategoryChange(e.target.value as ProductItem['category'])}
+                  onChange={(e) => onCategorySelectChange(e.target.value as ProductItem['category'])}
                   className="w-full rounded-2xl border border-neutral-800 bg-neutral-900 px-4 py-3 text-sm text-white focus:border-red-600 focus:outline-none"
                 >
                   <option value="zapatillas">Zapatillas</option>

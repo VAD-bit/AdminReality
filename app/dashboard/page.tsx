@@ -9,7 +9,6 @@ import { SaleModal } from '@/components/admin/modals/sale-modal'
 import { ProductItem, InventoryVariant } from '@/lib/types'
 import { createClient } from '@/lib/supabase/client'
 
-// 1. Instanciar Supabase FUERA del componente para mantener la referencia estable
 const supabase = createClient()
 
 export default function DashboardPage() {
@@ -33,7 +32,7 @@ export default function DashboardPage() {
   const [isProcessingSale, setIsProcessingSale] = useState<boolean>(false)
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
 
-  // 4. ESTADO DE FORMULARIO
+  // 4. ESTADO DE FORMULARIO E IMAGEN
   const [productForm, setProductForm] = useState({
     name: '',
     category: 'zapatillas' as ProductItem['category'],
@@ -45,8 +44,9 @@ export default function DashboardPage() {
     { size_or_detail: '', stock: 0 },
   ])
   const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
-  // 5. FUNCIÓN DE CARGA DE DATOS DE SUPABASE (SIN DEPENDENCIAS CAMBIANTES)
+  // 5. CARGA DE DATOS DE SUPABASE
   const fetchInventoryData = useCallback(async () => {
     setIsLoading(true)
     try {
@@ -82,14 +82,12 @@ export default function DashboardPage() {
         .select('*')
 
       if (!salesError && salesData) {
-        // Sumamos las unidades reales de la columna 'quantity'
         const totalUnitsSold = salesData.reduce(
           (sum: number, sale: any) => sum + (Number(sale.quantity) || 0),
           0
         )
         setSalesCount(totalUnitsSold)
 
-        // Sumamos los ingresos usando la columna 'total_price'
         const totalRev = salesData.reduce(
           (sum: number, sale: any) => sum + (Number(sale.total_price) || 0),
           0
@@ -97,18 +95,18 @@ export default function DashboardPage() {
         setTotalRevenue(totalRev)
       }
     } catch (error: any) {
-      console.error('ERROR COMPLETO:', error);
-      console.error('Mensaje:', error?.message);
+      console.error('ERROR COMPLETO:', error)
+      console.error('Mensaje:', error?.message)
     } finally {
       setIsLoading(false)
     }
-  }, []) // <-- Dependencia vacía para evitar bucles de renderizado
+  }, [])
 
   useEffect(() => {
     fetchInventoryData()
   }, [fetchInventoryData])
 
-  // 6. FUNCIONES / HANDLERS
+  // 6. HANDLERS Y LÓGICA DE FORMULARIO
   const handleOpenCreateModal = () => {
     setEditingProductId(null)
     setProductForm({
@@ -120,6 +118,7 @@ export default function DashboardPage() {
     })
     setVariants([{ size_or_detail: '', stock: 0 }])
     setImagePreview(null)
+    setSelectedFile(null)
     setIsAddModalOpen(true)
   }
 
@@ -144,6 +143,7 @@ export default function DashboardPage() {
     )
     
     setImagePreview(prod.image || prod.image_url || null)
+    setSelectedFile(null)
     setIsAddModalOpen(true)
   }
 
@@ -196,6 +196,7 @@ export default function DashboardPage() {
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) {
+      setSelectedFile(file)
       setImagePreview(URL.createObjectURL(file))
     }
   }
@@ -232,7 +233,6 @@ export default function DashboardPage() {
         }
       }
 
-      // Se usa total_price y quantity para coincidir con la base de datos
       await supabase.from('sales').insert({
         product_id: selectedProductForSale.id,
         advisor_name: selectedAdvisor || 'General',
@@ -251,36 +251,56 @@ export default function DashboardPage() {
     }
   }
 
+  // SUBIDA DE IMAGEN Y ENVÍO DE PRODUCTO
   const handleProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
     try {
+      let imageUrl = imagePreview
+
+      // 1. Subida del archivo si se seleccionó uno nuevo
+      if (selectedFile) {
+        const fileExt = selectedFile.name.split('.').pop()
+        const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`
+        const filePath = `${fileName}`
+
+        const { error: uploadError } = await supabase.storage
+          .from('products')
+          .upload(filePath, selectedFile, { upsert: true })
+
+        if (uploadError) throw uploadError
+
+        const { data: publicUrlData } = supabase.storage
+          .from('products')
+          .getPublicUrl(filePath)
+
+        imageUrl = publicUrlData.publicUrl
+      }
+
       let productId = editingProductId
+
+      // 2. Insert o Update de la tabla products especificando el campo image
+      const productPayload = {
+        name: productForm.name,
+        category: productForm.category,
+        subcategory: productForm.subcategory,
+        price: Number(productForm.price),
+        gender: productForm.gender,
+        image: imageUrl,
+      }
 
       if (editingProductId) {
         const { error } = await supabase
           .from('products')
-          .update({
-            name: productForm.name,
-            category: productForm.category,
-            subcategory: productForm.subcategory,
-            price: Number(productForm.price),
-            gender: productForm.gender,
-          })
+          .update(productPayload)
           .eq('id', editingProductId)
 
         if (error) throw error
       } else {
         const { data, error } = await supabase
           .from('products')
-          .insert({
-            name: productForm.name,
-            category: productForm.category,
-            subcategory: productForm.subcategory,
-            price: Number(productForm.price),
-            gender: productForm.gender,
-          })
+          .insert(productPayload)
           .select()
           .single()
 
@@ -288,6 +308,7 @@ export default function DashboardPage() {
         productId = data.id
       }
 
+      // 3. Insert / Update de variantes en inventory
       if (productId) {
         for (const variant of variants) {
           if (variant.size_or_detail) {
@@ -323,7 +344,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h1 className="font-heading text-2xl font-black uppercase tracking-wider">
             Panel de Inventario
@@ -336,7 +357,7 @@ export default function DashboardPage() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => alert('Modal de ofertas en desarrollo')}
-            className="inline-flex items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-900/80 px-5 py-3 font-heading text-xs font-black uppercase tracking-widest text-white hover:bg-neutral-800 transition-all"
+            className="inline-flex items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-900/80 px-5 py-3 font-heading text-xs font-black uppercase tracking-widest text-white transition-all hover:bg-neutral-800"
           >
             <Sparkles className="size-4 text-amber-400" />
             Activar Evento (Ofertas)
@@ -344,7 +365,7 @@ export default function DashboardPage() {
 
           <button
             onClick={handleOpenCreateModal}
-            className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-5 py-3 font-heading text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-red-600/30 hover:bg-red-700 transition-all"
+            className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-5 py-3 font-heading text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-red-600/30 transition-all hover:bg-red-700"
           >
             <Plus className="size-4" />
             Agregar Producto
