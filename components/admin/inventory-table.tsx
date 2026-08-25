@@ -10,6 +10,7 @@ interface InventoryTableProps {
   onEdit: (product: ProductItem) => void
   onSale: (product: ProductItem) => void
   onDelete: (id: string) => void
+  showNewBadge?: boolean
 }
 
 export function InventoryTable({
@@ -18,6 +19,7 @@ export function InventoryTable({
   onEdit,
   onSale,
   onDelete,
+  showNewBadge = false,
 }: InventoryTableProps) {
   if (isLoading) {
     return (
@@ -33,6 +35,15 @@ export function InventoryTable({
         No hay productos registrados en el inventario.
       </div>
     )
+  }
+
+  // Validación para determinar si un producto tiene 30 días o menos de creado
+  const isProductNew = (createdAt?: string) => {
+    if (!createdAt) return false
+    const createdDate = new Date(createdAt)
+    const thirtyDaysAgo = new Date()
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+    return createdDate >= thirtyDaysAgo
   }
 
   return (
@@ -56,18 +67,30 @@ export function InventoryTable({
               0
             )
 
+            const isNew = showNewBadge && isProductNew((product as any).created_at)
+
             return (
               <tr key={product.id} className="transition-colors hover:bg-neutral-800/30">
                 <td className="p-4">
                   <div className="flex items-center gap-3">
-                    <div className="relative size-12 shrink-0 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
-                      <Image
-                        src={product.image || '/hero-texture.png'}
-                        alt={product.name}
-                        fill
-                        className="object-cover"
-                      />
+                    <div className="relative size-12 shrink-0 overflow-visible">
+                      <div className="relative size-12 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-950">
+                        <Image
+                          src={product.image || '/hero-texture.png'}
+                          alt={product.name}
+                          fill
+                          className="object-cover"
+                        />
+                      </div>
+
+                      {/* BADGE "NUEVO" SI APLICA */}
+                      {isNew && (
+                        <span className="absolute -right-1 -top-1.5 z-10 rounded-full border border-red-500/50 bg-red-600 px-1.5 py-0.5 font-heading text-[8px] font-black uppercase tracking-wider text-white shadow-md shadow-red-950/50">
+                          NUEVO
+                        </span>
+                      )}
                     </div>
+
                     <span className="font-bold uppercase text-white">{product.name}</span>
                   </div>
                 </td>
